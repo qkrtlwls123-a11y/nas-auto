@@ -4,6 +4,28 @@ import database as db
 
 # 1. 앱 초기화
 st.set_page_config(page_title="리더십 다면진단 시스템", layout="wide")
+
+# ==========================================
+#  [추가] 상단 바(Header)와 푸터(Footer) 숨기기
+# ==========================================
+hide_streamlit_style = """
+<style>
+    /* 상단 헤더(붉은 줄 + 햄버거 메뉴) 숨기기 */
+    header {visibility: hidden;}
+    
+    /* 혹시 햄버거 메뉴가 남을 경우 강제로 숨기기 */
+    #MainMenu {visibility: hidden;}
+    
+    /* 하단 'Made with Streamlit' 푸터 숨기기 */
+    footer {visibility: hidden;}
+    
+    /* 상단 여백 줄이기 (헤더가 없어진 만큼 위로 당기기) */
+    .block-container {
+        padding-top: 1rem;
+    }
+</style>
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
 db.init_db()
 
 # 2. URL 파라미터 확인 (토큰)
@@ -166,4 +188,5 @@ else:
                         st.error("저장 중 오류가 발생했습니다.")
         
         elif 'selected_task' not in st.session_state and total_count > done_count:
+
             st.info("👈 왼쪽 목록에서 평가할 대상을 선택해주세요.")
