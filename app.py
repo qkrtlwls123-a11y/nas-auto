@@ -29,7 +29,7 @@ else:
 # ==========================================
 if not token:
     st.sidebar.title("🔧 관리자 시스템")
-    menu = st.sidebar.radio("Menu", ["대시보드", "프로젝트 설정", "엑셀 업로드", "데이터 관리", "설정"])
+    menu = st.sidebar.radio("Menu", ["대시보드", "프로젝트 설정", "엑셀 업로드", "데이터 관리", "진단 문항", "설정"])
 
     corporates = db.list_corporates()
     projects = db.list_projects()
@@ -213,6 +213,45 @@ if not token:
             else:
                 st.dataframe(responses, hide_index=True, use_container_width=True)
 
+    elif menu == "진단 문항":
+        st.title("🧭 프로젝트별 진단 문항")
+        st.caption("프로젝트에 연결된 평가 문항과 프레임워크를 관리합니다.")
+
+        project_options = {"프로젝트 선택": None}
+        for _, row in projects.iterrows():
+            project_options[f"{row['corporate_name']} - {row['name']} ({row['year']})"] = row["id"]
+
+        project_label = st.selectbox("대상 프로젝트", list(project_options.keys()))
+        project_id = project_options[project_label]
+
+        if not project_id:
+            st.info("문항을 편집할 프로젝트를 먼저 선택하세요.")
+        else:
+            with st.expander("테스트 문항 일괄 등록", expanded=True):
+                st.write("제공된 36개 문항과 프레임워크를 선택한 프로젝트에 바로 채워 넣습니다.")
+                if st.button("테스트 문항 세팅", type="primary"):
+                    total = db.load_sample_questions(project_id)
+                    st.success(f"{total}개 문항이 등록되었습니다.")
+
+            st.subheader("등록된 문항")
+            questions = db.get_project_questions(project_id)
+            if questions.empty:
+                st.info("아직 등록된 문항이 없습니다. 상단 버튼으로 샘플을 세팅하세요.")
+            else:
+                display = questions.copy()
+                display = display.rename(
+                    columns={
+                        "question_text": "문항",
+                        "keyword": "키워드",
+                        "framework": "Framework",
+                        "question_type": "타입",
+                        "sort_order": "순번",
+                    }
+                )[
+                    ["순번", "문항", "키워드", "Framework", "타입"]
+                ]
+                st.dataframe(display, hide_index=True, use_container_width=True)
+
     elif menu == "설정":
         st.title("⚙️ 시스템 설정")
 
@@ -255,6 +294,7 @@ else:
     st.caption(f"프로젝트: {user['project_name']} | 평가자: {user['name']}")
 
     tasks = db.get_my_assignments(user['id'])
+    questions = db.get_project_questions(user['project_id'])
 
     # 진척률 표시
     done = len(tasks[tasks['status'] == 'COMPLETED'])
@@ -286,12 +326,20 @@ else:
                 t = st.session_state['task']
                 st.subheader(f"📝 {t['leader_name']}님 평가")
                 with st.form(f"f_{t['id']}"):
-                    q1 = st.slider("Q1. 비전 제시 능력", 1, 5, 3)
-                    q2 = st.slider("Q2. 소통 능력", 1, 5, 3)
+                    scores = {}
+                    if questions.empty:
+                        st.warning("관리자가 진단 문항을 아직 등록하지 않았습니다.")
+                    else:
+                        for _, q in questions.iterrows():
+                            label = f"{int(q['sort_order'])}. {q['question_text']}"
+                            if q.get('keyword'):
+                                label += f" ({q['keyword']})"
+                            scores[q['id']] = st.slider(label, 1, 5, 3)
+
                     comment = st.text_area("서술형 의견")
 
-                    if st.form_submit_button("제출"):
-                        db.save_response(t['id'], q1, q2, comment)
+                    if st.form_submit_button("제출", disabled=questions.empty):
+                        db.save_response(t['id'], scores, comment)
                         st.toast("저장완료!")
                         del st.session_state['task']
                         st.rerun()

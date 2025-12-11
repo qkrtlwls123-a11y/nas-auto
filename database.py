@@ -80,6 +80,29 @@ def init_db():
         submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (assignment_id) REFERENCES assignments(id)
     )''')
+
+    # 7. 프로젝트별 진단 문항
+    c.execute('''CREATE TABLE IF NOT EXISTS diagnostic_questions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        project_id INTEGER NOT NULL,
+        question_text TEXT NOT NULL,
+        keyword TEXT,
+        framework TEXT,
+        question_type TEXT DEFAULT 'likert',
+        sort_order INTEGER DEFAULT 0,
+        FOREIGN KEY (project_id) REFERENCES projects(id)
+    )''')
+
+    # 8. 문항별 응답
+    c.execute('''CREATE TABLE IF NOT EXISTS question_responses (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        assignment_id INTEGER NOT NULL,
+        question_id INTEGER NOT NULL,
+        score INTEGER,
+        submitted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (assignment_id) REFERENCES assignments(id),
+        FOREIGN KEY (question_id) REFERENCES diagnostic_questions(id)
+    )''')
     
     conn.commit()
     conn.close()
@@ -146,6 +169,92 @@ def get_dashboard_overview(corporate_id=None):
             .round(3)
         )
     return df
+
+
+# --- 진단 문항 관리 함수 ---
+
+
+def replace_project_questions(project_id, questions):
+    """해당 프로젝트의 기존 문항을 삭제하고 새로 채워 넣습니다."""
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        c.execute("DELETE FROM diagnostic_questions WHERE project_id = ?", (project_id,))
+        for idx, q in enumerate(questions, start=1):
+            c.execute(
+                """
+                INSERT INTO diagnostic_questions (project_id, question_text, keyword, framework, question_type, sort_order)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project_id,
+                    q.get("question_text"),
+                    q.get("keyword"),
+                    q.get("framework"),
+                    q.get("question_type", "likert"),
+                    q.get("sort_order", idx),
+                ),
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_project_questions(project_id):
+    conn = get_connection()
+    query = """
+        SELECT id, question_text, keyword, framework, question_type, sort_order
+        FROM diagnostic_questions
+        WHERE project_id = ?
+        ORDER BY sort_order ASC, id ASC
+    """
+    df = pd.read_sql(query, conn, params=(project_id,))
+    conn.close()
+    return df
+
+
+def load_sample_questions(project_id):
+    sample_data = [
+        {"question_text": "진단 대상자는 구성원들이 불편사항이나 우려사항을 솔직하게 표현할 수 있는 환경을 조성한다.", "keyword": "소신표현장려", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 구성원이 어려움을 극복하고 다시 도전할 수 있는 환경을 조성한다.", "keyword": "회복지원", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 예상치 못한 이슈 발생 시 신속하게 상황을 파악하고 적절한 판단을 내린다.", "keyword": "신속판단", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 고객과의 소통에서 신뢰와 공감을 기반으로 긍정적인 관계를 유지한다.", "keyword": "고객신뢰유지", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 공동 목표 달성을 위해 구성원 각자의 역할과 책임을 명확하게 정의한다.", "keyword": "역할책임정의", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 고객 기대 수준을 선제적으로 파악하고 이를 초과 달성하기 위해 노력한다.", "keyword": "기대수준이상", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 구성원과의 피드백과 면담을 통해 구성원의 자기 인식을 촉진한다.", "keyword": "구성원면담", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자의 스스로 학습하고 성장하는 모습이 구성원의 롤모델이 된다.", "keyword": "귀감인물", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 구성원이 불안감을 느낄 수 있는 상황에서 정서적으로 지지하고 안정감을 제공한다.", "keyword": "정서적지지", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 구성원에게 명확한 데드라인을 제시하고 이행 여부를 점검한다.", "keyword": "기한관리", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 구성원이 데이터 기반으로 사고하고 판단할 수 있도록 지도한다.", "keyword": "데이터역량강화", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 관행에 얽매이지 않고 새롭게 요구되는 방식에 유연하게 적응한다.", "keyword": "유연적응", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 조직 변화 방향을 구성원이 이해할 수 있도록 명확히 설명하고 설득한다.", "keyword": "변화설득", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 의사결정 시 직관이나 경험뿐만 아니라 데이터를 활용한다.", "keyword": "데이터의사결정", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 팀의 목표 달성을 위한 명확한 일정과 실행 계획을 수립한다.", "keyword": "계획수립", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 자신의 전문지식과 노하우를 구성원에게 적극적으로 공유한다.", "keyword": "지식공유", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 고객 피드백을 반영하여 지속적으로 서비스 품질을 점검하고 개선한다.", "keyword": "품질개선", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 구성원과 동료의 피드백을 수용하여 스스로 변화하는 모습을 보여준다.", "keyword": "피드백반영", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 업무 변화와 트렌드에 신속히 반응하고 관련 정보를 조직 내에 빠르게 공유한다.", "keyword": "트렌드공유", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 서비스 품질 기준을 명확히 설정하고, 필요시 상향 조정한다.", "keyword": "품질기준설정", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 구성원 각자의 잠재력을 파악하여 이를 개발할 수 있도록 지원한다.", "keyword": "개발지원", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 구성원이 새로운 과제에 도전하고 이를 통해 학습·성장할 수 있도록 심리적 안정감을 조성한다.", "keyword": "안정감조성", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 구성원의 역량과 역할을 고려하여 책임과 과업을 명확하게 배분한다.", "keyword": "과업배분", "framework": "인재육성 및 동기부여"},
+        {"question_text": "진단 대상자는 개인의 성과보다 팀과 조직의 성과를 우선하여 판단하고 실행한다.", "keyword": "조직우선", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 어려운 문제나 이슈가 발생하면 전문성에 기반하여 실질적인 해결책을 제시한다.", "keyword": "문제해결", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 팀의 목표와 계획이 조직의 방향성에 부합하도록 조율한다.", "keyword": "방향조율", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 기존 방식을 고수하지 않고 구성원과 함께 새로운 접근 방식을 시도한다.", "keyword": "혁신시도", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 상황 변화에 따라 구체적이고 명확한 행동 지침을 필요한 시기에 제공한다.", "keyword": "상황지침제공", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 업무의 중요도와 긴급도를 고려하여 우선순위를 설정하고 실행한다.", "keyword": "업무순위결정", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 스트레스 상황에서도 자신의 부정적 감정을 구성원에게 전달하지 않는다.", "keyword": "감정관리", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 다양한 이해관계자 간 의견 차이를 조율하여 조직 내 신뢰를 형성한다.", "keyword": "의견조율", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 계획한 목표를 끝까지 추진하여 명확한 결과를 도출한다.", "keyword": "목표완수", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 자신의 약점에 대해 솔직하게 인정하고 보완책을 마련한다.", "keyword": "약점인정", "framework": "자기개발 및 관리"},
+        {"question_text": "진단 대상자는 팀의 목표 달성을 위한 실행 전략을 수립하고 이를 구성원과 명확히 공유한다.", "keyword": "전략공유", "framework": "전략과 변화주도"},
+        {"question_text": "진단 대상자는 고객의 피드백을 신속히 팀에 공유하고 업무에 반영한다.", "keyword": "고객요구반영", "framework": "실행을 통한 성과창출"},
+        {"question_text": "진단 대상자는 구성원이 문제를 해결할 수 있도록 실질적인 도움이나 필요한 자원을 제공한다.", "keyword": "해결지원", "framework": "실행을 통한 성과창출"},
+    ]
+    replace_project_questions(project_id, sample_data)
+    return len(sample_data)
 
 # --- 데이터 업로드 및 생성 함수 ---
 
@@ -250,7 +359,10 @@ def create_sample_data():
     # 4. 할당
     c.execute("INSERT INTO assignments (project_id, evaluator_id, leader_id, relation) VALUES (?, ?, ?, 'BOSS')", (proj_id, ev_id, ld1))
     c.execute("INSERT INTO assignments (project_id, evaluator_id, leader_id, relation) VALUES (?, ?, ?, 'PEER')", (proj_id, ev_id, ld2))
-    
+
+    # 5. 샘플 진단 문항
+    load_sample_questions(proj_id)
+
     conn.commit()
     conn.close()
     return "샘플 데이터 생성 완료! (토큰: test1234)"
@@ -282,15 +394,28 @@ def get_my_assignments(evaluator_id):
     conn.close()
     return df
 
-def save_response(assignment_id, q1, q2, comment):
+def save_response(assignment_id, question_scores, comment=None):
+    """문항별 점수를 저장하고 할당 상태를 완료로 변경"""
     conn = get_connection()
     c = conn.cursor()
-    c.execute("INSERT INTO responses (assignment_id, q1_score, q2_score, comment) VALUES (?, ?, ?, ?)", 
-              (assignment_id, q1, q2, comment))
-    c.execute("UPDATE assignments SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP WHERE id = ?", (assignment_id,))
-    conn.commit()
-    conn.close()
-    return True
+    try:
+        c.execute(
+            "INSERT INTO responses (assignment_id, q1_score, q2_score, comment) VALUES (?, ?, ?, ?)",
+            (assignment_id, None, None, comment),
+        )
+        for q_id, score in question_scores.items():
+            c.execute(
+                "INSERT INTO question_responses (assignment_id, question_id, score) VALUES (?, ?, ?)",
+                (assignment_id, q_id, score),
+            )
+        c.execute(
+            "UPDATE assignments SET status = 'COMPLETED', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (assignment_id,),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
 
 
 def get_project_snapshot(project_id):
@@ -356,14 +481,16 @@ def get_responses_with_people(project_id):
     """응답 데이터 조회"""
     conn = get_connection()
     query = """
-        SELECT R.id, R.assignment_id, R.q1_score, R.q2_score, R.comment, R.submitted_at,
-               E.name AS evaluator, L.name AS leader
-        FROM responses R
-        JOIN assignments A ON R.assignment_id = A.id
+        SELECT QR.id, QR.assignment_id, Q.question_text, Q.keyword, Q.framework, QR.score, QR.submitted_at,
+               E.name AS evaluator, L.name AS leader, R.comment
+        FROM question_responses QR
+        JOIN diagnostic_questions Q ON QR.question_id = Q.id
+        JOIN assignments A ON QR.assignment_id = A.id
         JOIN evaluators E ON A.evaluator_id = E.id
         JOIN leaders L ON A.leader_id = L.id
+        LEFT JOIN responses R ON R.assignment_id = A.id
         WHERE A.project_id = ?
-        ORDER BY R.submitted_at DESC
+        ORDER BY QR.submitted_at DESC, QR.id DESC
     """
     df = pd.read_sql(query, conn, params=(project_id,))
     conn.close()
@@ -374,7 +501,16 @@ def reset_database():
     conn = get_connection()
     c = conn.cursor()
     # 순서 중요: 참조 무결성 때문에 자식 테이블부터 삭제
-    tables = ["responses", "assignments", "evaluators", "leaders", "projects", "corporates"]
+    tables = [
+        "question_responses",
+        "responses",
+        "assignments",
+        "diagnostic_questions",
+        "evaluators",
+        "leaders",
+        "projects",
+        "corporates",
+    ]
     for table in tables:
         c.execute(f"DROP TABLE IF EXISTS {table}")
     conn.commit()
