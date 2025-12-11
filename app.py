@@ -84,14 +84,55 @@ if not token:
                 st.info("데이터가 없습니다.")
 
     elif menu == "데이터 관리":
-        st.title("🗂 데이터 조회 및 관리")
+        st.title("🗂 데이터 등록 및 관리")
         
-        conn = db.get_connection()
-        table = st.selectbox("테이블 선택", ["evaluators", "leaders", "assignments", "responses", "corporates", "projects"])
+        tab1, tab2 = st.tabs(["📤 엑셀 일괄 등록", "🔍 데이터 조회"])
         
-        df = pd.read_sql(f"SELECT * FROM {table}", conn)
-        st.dataframe(df, use_container_width=True)
-        conn.close()
+        with tab1:
+            st.subheader("진단 대상자 일괄 등록")
+            st.info("평가자, 리더, 관계 정보를 담은 엑셀/CSV 파일을 업로드하세요.")
+            
+            # 1. 프로젝트 선택/생성
+            col_p1, col_p2, col_p3 = st.columns(3)
+            corp_input = col_p1.text_input("기업명", value="(주)테크컴퍼니")
+            proj_input = col_p2.text_input("프로젝트명", value="2025 리더십 진단")
+            year_input = col_p3.number_input("연도", value=2025)
+            
+            # 2. 파일 업로드
+            uploaded_file = st.file_uploader("파일 선택", type=['csv', 'xlsx'])
+            
+            if uploaded_file:
+                # 파일 읽기
+                if uploaded_file.name.endswith('.csv'):
+                    df = pd.read_csv(uploaded_file)
+                else:
+                    df = pd.read_excel(uploaded_file)
+                
+                st.write("미리보기:", df.head())
+                
+                if st.button("DB에 등록하기", type="primary"):
+                    # 프로젝트 ID 확보
+                    proj_id = db.get_or_create_project(corp_input, proj_input, year_input)
+                    # 업로드 처리
+                    success, msg = db.process_bulk_upload(proj_id, df)
+                    if success:
+                        st.success(msg)
+                    else:
+                        st.error(msg)
+                        
+            st.markdown("""
+            **💡 엑셀 파일 컬럼 양식:**
+            - `evaluator_name` (평가자 이름)
+            - `evaluator_email` (평가자 이메일)
+            - `evaluator_code` (평가자 사번, 선택)
+            - `leader_name` (리더 이름)
+            - `leader_code` (리더 사번)
+            - `relation` (상사/동료/부하/본인)
+            - `project_group` (그룹/부서명)
+            """)
+
+        with tab2:
+            st.subheader("테이블 데이터 조회")
 
     elif menu == "설정":
         st.title("⚙️ 시스템 설정")
@@ -190,3 +231,4 @@ else:
         elif 'selected_task' not in st.session_state and total_count > done_count:
 
             st.info("👈 왼쪽 목록에서 평가할 대상을 선택해주세요.")
+
