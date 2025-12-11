@@ -84,6 +84,69 @@ def init_db():
     conn.commit()
     conn.close()
 
+
+# === 조회 편의 함수 ===
+
+
+def list_corporates():
+    """모든 기업 목록을 반환"""
+    conn = get_connection()
+    df = pd.read_sql(
+        "SELECT id, name, created_at FROM corporates ORDER BY name",
+        conn,
+    )
+    conn.close()
+    return df
+
+
+def list_projects(corporate_id=None):
+    """프로젝트 목록 (기업으로 필터 가능)"""
+    conn = get_connection()
+    query = """
+        SELECT P.id, P.name, P.year, P.status, C.name AS corporate_name
+        FROM projects P
+        JOIN corporates C ON P.corporate_id = C.id
+        WHERE (? IS NULL OR C.id = ?)
+        ORDER BY P.year DESC, P.id DESC
+    """
+    df = pd.read_sql(query, conn, params=(corporate_id, corporate_id))
+    conn.close()
+    return df
+
+
+def get_dashboard_overview(corporate_id=None):
+    """기업/프로젝트 단위 진행 현황 요약"""
+    conn = get_connection()
+    query = """
+        SELECT
+            C.id AS corporate_id,
+            C.name AS corporate_name,
+            P.id AS project_id,
+            P.name AS project_name,
+            P.year,
+            COUNT(DISTINCT A.id) AS total_assignments,
+            SUM(CASE WHEN A.status = 'COMPLETED' THEN 1 ELSE 0 END) AS completed_assignments,
+            COUNT(DISTINCT E.id) AS evaluator_count,
+            COUNT(DISTINCT L.id) AS leader_count
+        FROM projects P
+        JOIN corporates C ON P.corporate_id = C.id
+        LEFT JOIN assignments A ON P.id = A.project_id
+        LEFT JOIN evaluators E ON P.id = E.project_id
+        LEFT JOIN leaders L ON P.id = L.project_id
+        WHERE (? IS NULL OR C.id = ?)
+        GROUP BY P.id
+        ORDER BY P.year DESC, P.id DESC
+    """
+    df = pd.read_sql(query, conn, params=(corporate_id, corporate_id))
+    conn.close()
+    if not df.empty:
+        df["completion_rate"] = (
+            (df["completed_assignments"] / df["total_assignments"].replace({0: None}))
+            .fillna(0)
+            .round(3)
+        )
+    return df
+
 # --- 데이터 업로드 및 생성 함수 ---
 
 def get_or_create_project(corp_name, project_name, year):
@@ -145,7 +208,7 @@ def process_bulk_upload(project_id, df):
             c.execute("SELECT id FROM assignments WHERE evaluator_id=? AND leader_id=?", (ev_id, ld_id))
             if not c.fetchone():
                 rel_code = RELATION_MAP.get(row.get('relation'), row.get('relation'))
-                c.execute("INSERT INTO assignments (project_id, evaluator_id, leader_id, relation, project_group) VALUES (?, ?, ?, ?, ?)", 
+                c.execute("INSERT INTO assignments (project_id, evaluator_id, leader_id, relation, project_group) VALUES (?, ?, ?, ?, ?)",
                           (project_id, ev_id, ld_id, rel_code, row.get('project_group')))
                 cnt_created += 1
             else:
@@ -229,7 +292,82 @@ def save_response(assignment_id, q1, q2, comment):
     conn.close()
     return True
 
-# database.py 맨 아래에 추가하세요
+
+def get_project_snapshot(project_id):
+    """프로젝트별 주요 지표 (할당/완료/응답 수)"""
+    conn = get_connection()
+    data = {}
+    try:
+        df = pd.read_sql(
+            "SELECT status, COUNT(*) as cnt FROM assignments WHERE project_id = ? GROUP BY status",
+            conn,
+            params=(project_id,),
+        )
+        total_assignments = df["cnt"].sum() if not df.empty else 0
+        completed = int(df.loc[df["status"] == "COMPLETED", "cnt"].sum()) if not df.empty else 0
+        data["total_assignments"] = int(total_assignments)
+        data["completed_assignments"] = completed
+        data["pending_assignments"] = int(total_assignments - completed)
+
+        data["evaluators"] = int(
+            pd.read_sql(
+                "SELECT COUNT(DISTINCT id) AS cnt FROM evaluators WHERE project_id = ?",
+                conn,
+                params=(project_id,),
+            )["cnt"].iloc[0]
+        )
+        data["leaders"] = int(
+            pd.read_sql(
+                "SELECT COUNT(DISTINCT id) AS cnt FROM leaders WHERE project_id = ?",
+                conn,
+                params=(project_id,),
+            )["cnt"].iloc[0]
+        )
+        data["responses"] = int(
+            pd.read_sql(
+                "SELECT COUNT(*) AS cnt FROM responses WHERE assignment_id IN (SELECT id FROM assignments WHERE project_id = ?)",
+                conn,
+                params=(project_id,),
+            )["cnt"].iloc[0]
+        )
+    finally:
+        conn.close()
+    return data
+
+
+def get_assignments_with_people(project_id):
+    """평가자-피평가자 매핑 상세"""
+    conn = get_connection()
+    query = """
+        SELECT A.id, E.name AS evaluator, E.email, L.name AS leader, L.department, L.position,
+               A.relation, A.project_group, A.status, A.completed_at
+        FROM assignments A
+        JOIN evaluators E ON A.evaluator_id = E.id
+        JOIN leaders L ON A.leader_id = L.id
+        WHERE A.project_id = ?
+        ORDER BY A.id DESC
+    """
+    df = pd.read_sql(query, conn, params=(project_id,))
+    conn.close()
+    return df
+
+
+def get_responses_with_people(project_id):
+    """응답 데이터 조회"""
+    conn = get_connection()
+    query = """
+        SELECT R.id, R.assignment_id, R.q1_score, R.q2_score, R.comment, R.submitted_at,
+               E.name AS evaluator, L.name AS leader
+        FROM responses R
+        JOIN assignments A ON R.assignment_id = A.id
+        JOIN evaluators E ON A.evaluator_id = E.id
+        JOIN leaders L ON A.leader_id = L.id
+        WHERE A.project_id = ?
+        ORDER BY R.submitted_at DESC
+    """
+    df = pd.read_sql(query, conn, params=(project_id,))
+    conn.close()
+    return df
 
 def reset_database():
     """모든 테이블을 삭제하고 다시 초기화 (강제 리셋)"""
