@@ -5,8 +5,7 @@ import database as db
 # 1. 앱 설정 & DB 연결
 st.set_page_config(page_title="리더십 다면진단 시스템", layout="wide")
 
-# 상단 헤더 숨김 코드 삭제 -> 사이드바 토글 버튼이 보이도록 수정
-# 푸터(Made with Streamlit)만 숨깁니다.
+# 상단 헤더 숨기기 (깔끔한 UI)
 hide_streamlit_style = """
 <style>
     footer {visibility: hidden;}
@@ -29,11 +28,11 @@ else:
 # ==========================================
 if not token:
     st.sidebar.title("🔧 관리자 시스템")
-    # [수정] '설정' 메뉴가 다시 추가되었습니다.
     menu = st.sidebar.radio("Menu", ["대시보드", "데이터 등록", "데이터 조회", "설정"])
     
     if menu == "대시보드":
         st.title("📊 통합 진단 현황")
+        
         conn = db.get_connection()
         query = """
             SELECT C.name as Corporate, P.name as Project, 
@@ -86,7 +85,6 @@ if not token:
         st.dataframe(pd.read_sql(f"SELECT * FROM {tab}", conn), use_container_width=True)
         conn.close()
 
-    # [수정] 설정 탭 복구 (샘플 데이터 생성 기능)
     elif menu == "설정":
         st.title("⚙️ 시스템 설정")
         st.write("테스트를 위한 초기 데이터를 자동으로 생성합니다.")
@@ -99,14 +97,16 @@ if not token:
                 
         st.markdown("---")
         st.write("👉 **테스트 링크:**")
-        st.code("http://localhost:8501/?token=test1234", language="text")
+        st.code("https://leadership-360-jgj2r83.streamlit.app/?token=test1234", language="text")
 
 # ==========================================
 #  Scenario B: 응답자 모드 (토큰 있음)
 # ==========================================
 else:
     user = db.get_evaluator_by_token(token)
-    if not user:
+    
+    # [수정] Pandas Series 에러 방지를 위해 'is None'으로 명확하게 검사
+    if user is None:
         st.error("⛔ 유효하지 않은 접속 링크입니다.")
         st.stop()
     
