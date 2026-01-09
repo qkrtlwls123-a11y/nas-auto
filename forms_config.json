@@ -1,0 +1,11 @@
+[
+  {
+    "client": "ACME Corp",
+    "course": "리더십 워크숍",
+    "manager": "홍길동",
+    "date": "2024-08-15",
+    "category": "리더십",
+    "survey_name": "리더십 과정 만족도",
+    "sheet_url": "https://docs.google.com/spreadsheets/d/XXXXXXXXXXXXXXXXXXXX/edit#gid=0"
+  }
+]
